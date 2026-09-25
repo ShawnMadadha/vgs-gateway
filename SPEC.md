@@ -63,6 +63,21 @@ and nothing to the demo.
 Stack. FastAPI for the gateway and both vendor mocks, one HTML page for the
 demo. Few files, easy to read aloud.
 
+## What was built
+
+- `gateway/main.py` API: `POST /v1/payments`, `GET /v1/payments/{id}`,
+  `POST /v1/refunds`, `GET /v1/ledger`, `GET /v1/ledger.csv`, demo page at `/`.
+- `gateway/router.py` routing, one retry at the other vendor, rollback.
+- `gateway/vendors.py` Stripely and Adyenta adapters with one shared result type.
+- `gateway/ledger.py` append-only rows, per vendor and currency totals, vendor
+  success rates by region.
+- `mocks/` both vendor sandboxes, plus a sandbox-only outage switch on Adyenta.
+- `tests/test_flow.py` nine end-to-end tests. Run `./run.sh` then `uv run pytest`.
+
+Vendor calls time out after 5 seconds, so the hanging test card becomes an
+`unknown` attempt instead of burning the fare hold. A tokenize failure skips
+that vendor without a reconciliation flag, since no money moved.
+
 ## Out of scope
 
 Real vendor accounts, FX conversion, webhooks, the Tableau feed itself
