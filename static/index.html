@@ -1,1 +1,98 @@
-<h1>VGS gateway</h1>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>VGS gateway demo</title>
+<style>
+  body { font: 14px/1.4 system-ui, sans-serif; margin: 24px auto; max-width: 960px; padding: 0 16px; color: #1a1a1a; }
+  h1 { font-size: 20px; } h2 { font-size: 15px; margin: 24px 0 8px; }
+  fieldset { border: 1px solid #ccc; padding: 12px; margin-bottom: 12px; }
+  label { display: inline-block; margin-right: 12px; }
+  select, input, button { font: inherit; padding: 4px 6px; }
+  button { cursor: pointer; background: #1a1a1a; color: #fff; border: 0; padding: 6px 14px; }
+  button.secondary { background: #666; }
+  table { border-collapse: collapse; width: 100%; margin-top: 6px; }
+  th, td { text-align: left; padding: 4px 8px; border-bottom: 1px solid #ddd; font-variant-numeric: tabular-nums; }
+  .ok { color: #137333; } .bad { color: #b3261e; } .warn { color: #8a5a00; }
+  pre { background: #f4f4f4; padding: 8px; overflow: auto; font-size: 12px; }
+</style>
+</head>
+<body>
+<h1>VGS gateway: one connection for Atlas Voyages</h1>
+
+<fieldset>
+  <label>Test card
+    <select id="card">
+      <option value="4242424242424242">4242 succeeds</option>
+      <option value="4000000000009995">9995 soft decline</option>
+      <option value="4000000000009979">9979 stolen card</option>
+      <option value="4000000000000119">0119 vendor error</option>
+      <option value="4000000000005900">5900 hangs (gateway times out at 5s)</option>
+    </select>
+  </label>
+  <label><input type="checkbox" id="outage"> Adyenta outage</label>
+  <label>Booking <input id="ref" value="BKG-448291" size="10"></label>
+  <button onclick="pay()">Pay package</button>
+  <button class="secondary" onclick="pay(true)">Replay last request</button>
+</fieldset>
+
+<div id="package">Package: flight $450.00 US, hotel €320.00 EU, tour $99.00 APAC</div>
+<h2>Result</h2>
+<div id="result">Nothing yet.</div>
+
+<h2>Ledger <a href="/v1/ledger.csv" style="font-weight:normal">(CSV feed for finance)</a></h2>
+<table id="ledger"><thead><tr><th>Vendor</th><th>Currency</th><th>Charges</th><th>Gross</th><th>Refunds</th><th>Fees</th><th>Net</th></tr></thead><tbody></tbody></table>
+<h2>Vendor success by region</h2>
+<table id="stats"><thead><tr><th>Vendor</th><th>Region</th><th>Attempts</th><th>Succeeded</th><th>Rate</th></tr></thead><tbody></tbody></table>
+
+<script>
+let last = null;  // {key, body} so Replay resends the exact same request with the same key
+const money = (minor, cur) => `${(minor / 100).toFixed(2)} ${cur}`;
+
+async function pay(replay = false) {
+  await fetch("http://localhost:4002/__sandbox/outage?on=" + document.getElementById("outage").checked, { method: "POST", mode: "no-cors" });  // different port, response not needed
+  if (!replay || !last) {
+    last = {
+      key: crypto.randomUUID(),
+      body: {
+        booking_reference: document.getElementById("ref").value,
+        card: { number: document.getElementById("card").value, exp_month: 8, exp_year: 2029, cvc: "123" },
+        line_items: [
+          { id: "flight", amount: 45000, currency: "USD", region: "US" },
+          { id: "hotel", amount: 32000, currency: "EUR", region: "EU" },
+          { id: "tour", amount: 9900, currency: "USD", region: "APAC" },
+        ],
+      },
+    };
+  }
+  document.getElementById("result").textContent = "Processing…";
+  const r = await fetch("/v1/payments", { method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": last.key }, body: JSON.stringify(last.body) });
+  const p = await r.json();
+  render(p, r.status);
+  loadLedger();
+}
+
+function render(p, status) {
+  const cls = p.status === "succeeded" ? "ok" : "bad";
+  let html = `<b class="${cls}">${p.id} ${p.status}</b> (HTTP ${status}) ${p.failure ? "· " + p.failure : ""}`;
+  html += "<table><tr><th>Item</th><th>Amount</th><th>Status</th><th>Vendor</th><th>Attempts</th></tr>";
+  for (const i of p.line_items) {
+    const attempts = i.attempts.map(a => `${a.vendor}: ${a.outcome}${a.reason ? " (" + a.reason + ")" : ""}`).join("<br>");
+    html += `<tr><td>${i.id}</td><td>${money(i.amount, i.currency)}</td><td class="${i.status === "charged" ? "ok" : i.status === "rolled_back" ? "warn" : "bad"}">${i.status}</td><td>${i.vendor ?? ""}</td><td>${attempts}</td></tr>`;
+  }
+  html += "</table>";
+  if (p.needs_reconciliation) html += `<p class="warn">Needs reconciliation: ${JSON.stringify(p.needs_reconciliation)}</p>`;
+  document.getElementById("result").innerHTML = html;
+}
+
+async function loadLedger() {
+  const d = await (await fetch("/v1/ledger")).json();
+  document.querySelector("#ledger tbody").innerHTML = d.summary.map(r =>
+    `<tr><td>${r.vendor}</td><td>${r.currency}</td><td>${r.charges}</td><td>${money(r.gross, r.currency)}</td><td>${money(r.refunds, r.currency)}</td><td>${money(r.fees, r.currency)}</td><td><b>${money(r.net, r.currency)}</b></td></tr>`).join("");
+  document.querySelector("#stats tbody").innerHTML = d.vendor_stats.map(r =>
+    `<tr><td>${r.vendor}</td><td>${r.region}</td><td>${r.attempts}</td><td>${r.succeeded}</td><td>${(r.success_rate * 100).toFixed(0)}%</td></tr>`).join("");
+}
+loadLedger();
+</script>
+</body>
+</html>

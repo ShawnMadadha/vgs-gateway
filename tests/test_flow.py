@@ -76,6 +76,7 @@ def test_vendor_outage_rolls_back_successful_charges():
     items = {i["id"]: i for i in r.json()["line_items"]}
     assert items["flight"]["status"] == "rolled_back"  # Stripely charge succeeded, then was refunded
     assert items["hotel"]["status"] == "failed" and items["tour"]["status"] == "not_attempted"
+    assert "needs_reconciliation" not in r.json()  # tokenize failed, so no money moved at Adyenta
 
 
 def test_partial_refund_then_over_refund_rejected():

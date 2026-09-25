@@ -3,7 +3,7 @@ import hashlib
 import itertools
 
 from gateway import ledger
-from gateway.vendors import HARD_DECLINE, SUCCEEDED, UNKNOWN, VENDORS, Card, Result
+from gateway.vendors import HARD_DECLINE, INVALID, SUCCEEDED, UNKNOWN, VENDORS, Card, Result
 
 PRIMARY = {"US": "stripely", "EU": "adyenta"}  # today's routing, straight from the stakeholder
 _apac_turn = itertools.cycle(["stripely", "adyenta"])  # APAC rotates so Atlas can compare vendors
@@ -40,10 +40,11 @@ async def process(payment: dict, card: Card) -> dict:
             try:
                 if vendor not in tokens:
                     tokens[vendor] = await v.tokenize(card)
+            except Exception as e:  # tokenize failed, so no money moved: skip this vendor, never crash
+                res = Result(INVALID, reason=f"tokenize failed: {e}"[:120])
+            else:
                 res = await v.charge(tokens[vendor], item["amount"], item["currency"],
                                      payment["booking_reference"], attempt_key(payment["id"], item["id"], vendor))
-            except Exception as e:  # tokenize fault, vendor unreachable: a failed attempt, never a crash
-                res = Result(UNKNOWN, reason=f"{type(e).__name__}: {e}"[:120])
             ledger.record("charge", payment["id"], item["id"], vendor, res.outcome, item["amount"],
                           item["currency"], res.vendor_ref, res.reason, item["region"])
             item["attempts"].append({"vendor": vendor, "outcome": res.outcome, "reason": res.reason})
