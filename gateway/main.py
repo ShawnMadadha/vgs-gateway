@@ -10,7 +10,12 @@ from pydantic import BaseModel, Field
 from gateway import ledger, router
 from gateway.vendors import SUCCEEDED, Card
 
-app = FastAPI(title="VGS gateway")
+app = FastAPI(
+    title="VGS payment gateway",
+    version="0.1.0",
+    description="One connection for Atlas Voyages. Charge a package across vendors with retry and rollback, "
+                "refund one item or the whole bundle, and read the ledger. Amounts are integers in minor units.",
+)
 
 PAYMENTS: dict[str, dict] = {}
 IDEMPOTENCY: dict[str, tuple[str, str]] = {}  # key -> (body hash, payment id)

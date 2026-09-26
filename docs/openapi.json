@@ -1,0 +1,411 @@
+{
+    "openapi": "3.1.0",
+    "info": {
+        "title": "VGS payment gateway",
+        "description": "One connection for Atlas Voyages. Charge a package across vendors with retry and rollback, refund one item or the whole bundle, and read the ledger. Amounts are integers in minor units.",
+        "version": "0.1.0"
+    },
+    "paths": {
+        "/v1/payments": {
+            "post": {
+                "summary": "Create Payment",
+                "operationId": "create_payment_v1_payments_post",
+                "parameters": [
+                    {
+                        "name": "idempotency-key",
+                        "in": "header",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Idempotency-Key"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PaymentIn"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/payments/{payment_id}": {
+            "get": {
+                "summary": "Get Payment",
+                "operationId": "get_payment_v1_payments__payment_id__get",
+                "parameters": [
+                    {
+                        "name": "payment_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Payment Id"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/refunds": {
+            "post": {
+                "summary": "Create Refund",
+                "operationId": "create_refund_v1_refunds_post",
+                "parameters": [
+                    {
+                        "name": "idempotency-key",
+                        "in": "header",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Idempotency-Key"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/RefundIn"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/refunds/failed": {
+            "get": {
+                "summary": "Failed Refunds",
+                "description": "The daily feed for the ops team: every refund the vendor did not confirm, with what they need to chase it.",
+                "operationId": "failed_refunds_v1_refunds_failed_get",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/ledger": {
+            "get": {
+                "summary": "Get Ledger",
+                "operationId": "get_ledger_v1_ledger_get",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/ledger.csv": {
+            "get": {
+                "summary": "Get Ledger Csv",
+                "operationId": "get_ledger_csv_v1_ledger_csv_get",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/": {
+            "get": {
+                "summary": "Index",
+                "operationId": "index__get",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "components": {
+        "schemas": {
+            "CardIn": {
+                "properties": {
+                    "number": {
+                        "type": "string",
+                        "pattern": "^\\d{13,19}$",
+                        "title": "Number"
+                    },
+                    "exp_month": {
+                        "type": "integer",
+                        "maximum": 12.0,
+                        "minimum": 1.0,
+                        "title": "Exp Month"
+                    },
+                    "exp_year": {
+                        "type": "integer",
+                        "maximum": 2099.0,
+                        "minimum": 2026.0,
+                        "title": "Exp Year"
+                    },
+                    "cvc": {
+                        "type": "string",
+                        "pattern": "^\\d{3,4}$",
+                        "title": "Cvc"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "number",
+                    "exp_month",
+                    "exp_year",
+                    "cvc"
+                ],
+                "title": "CardIn"
+            },
+            "HTTPValidationError": {
+                "properties": {
+                    "detail": {
+                        "items": {
+                            "$ref": "#/components/schemas/ValidationError"
+                        },
+                        "type": "array",
+                        "title": "Detail"
+                    }
+                },
+                "type": "object",
+                "title": "HTTPValidationError"
+            },
+            "LineItem": {
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "maxLength": 64,
+                        "minLength": 1,
+                        "title": "Id"
+                    },
+                    "description": {
+                        "type": "string",
+                        "title": "Description",
+                        "default": ""
+                    },
+                    "amount": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0.0,
+                        "title": "Amount",
+                        "description": "minor units, 1050 = 10.50"
+                    },
+                    "currency": {
+                        "type": "string",
+                        "enum": [
+                            "USD",
+                            "EUR",
+                            "GBP"
+                        ],
+                        "title": "Currency"
+                    },
+                    "region": {
+                        "type": "string",
+                        "enum": [
+                            "US",
+                            "EU",
+                            "APAC"
+                        ],
+                        "title": "Region"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "id",
+                    "amount",
+                    "currency",
+                    "region"
+                ],
+                "title": "LineItem"
+            },
+            "PaymentIn": {
+                "properties": {
+                    "booking_reference": {
+                        "type": "string",
+                        "maxLength": 64,
+                        "minLength": 1,
+                        "title": "Booking Reference"
+                    },
+                    "card": {
+                        "$ref": "#/components/schemas/CardIn"
+                    },
+                    "line_items": {
+                        "items": {
+                            "$ref": "#/components/schemas/LineItem"
+                        },
+                        "type": "array",
+                        "maxItems": 5,
+                        "minItems": 1,
+                        "title": "Line Items"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "booking_reference",
+                    "card",
+                    "line_items"
+                ],
+                "title": "PaymentIn"
+            },
+            "RefundIn": {
+                "properties": {
+                    "payment_id": {
+                        "type": "string",
+                        "title": "Payment Id"
+                    },
+                    "line_item_id": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Line Item Id",
+                        "description": "omit to refund every charged item in the bundle"
+                    },
+                    "amount": {
+                        "anyOf": [
+                            {
+                                "type": "integer",
+                                "exclusiveMinimum": 0.0
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Amount",
+                        "description": "minor units; omit for full refund"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "payment_id"
+                ],
+                "title": "RefundIn"
+            },
+            "ValidationError": {
+                "properties": {
+                    "loc": {
+                        "items": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "integer"
+                                }
+                            ]
+                        },
+                        "type": "array",
+                        "title": "Location"
+                    },
+                    "msg": {
+                        "type": "string",
+                        "title": "Message"
+                    },
+                    "type": {
+                        "type": "string",
+                        "title": "Error Type"
+                    },
+                    "input": {
+                        "title": "Input"
+                    },
+                    "ctx": {
+                        "type": "object",
+                        "title": "Context"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "loc",
+                    "msg",
+                    "type"
+                ],
+                "title": "ValidationError"
+            }
+        }
+    }
+}
