@@ -48,10 +48,6 @@ class RefundIn(BaseModel):
     amount: int | None = Field(default=None, gt=0, description="minor units; omit for full refund")
 
 
-def public(payment: dict) -> dict:
-    return payment  # card details are never stored on the payment, so nothing to strip
-
-
 @app.post("/v1/payments")
 async def create_payment(body: PaymentIn, idempotency_key: str = Header()):
     digest = hashlib.sha256(body.model_dump_json().encode()).hexdigest()
@@ -60,7 +56,7 @@ async def create_payment(body: PaymentIn, idempotency_key: str = Header()):
         if seen_digest != digest:
             raise HTTPException(409, "Idempotency-Key was already used with a different request body.")
         p = PAYMENTS[pid]
-        return JSONResponse(public(p), status_code=201 if p["status"] == "succeeded" else 402)
+        return JSONResponse(p, status_code=201 if p["status"] == "succeeded" else 402)
     if len({i.id for i in body.line_items}) != len(body.line_items):
         raise HTTPException(422, "line_items ids must be unique.")
 
@@ -73,14 +69,14 @@ async def create_payment(body: PaymentIn, idempotency_key: str = Header()):
     IDEMPOTENCY[idempotency_key] = (digest, payment["id"])  # claim the key before any vendor call
     card = Card(body.card.number, body.card.exp_month, body.card.exp_year, body.card.cvc)
     await router.process(payment, card)
-    return JSONResponse(public(payment), status_code=201 if payment["status"] == "succeeded" else 402)
+    return JSONResponse(payment, status_code=201 if payment["status"] == "succeeded" else 402)
 
 
 @app.get("/v1/payments/{payment_id}")
 async def get_payment(payment_id: str):
     if payment_id not in PAYMENTS:
         raise HTTPException(404, "No such payment.")
-    return public(PAYMENTS[payment_id])
+    return PAYMENTS[payment_id]
 
 
 @app.post("/v1/refunds")

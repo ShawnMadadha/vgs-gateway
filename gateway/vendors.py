@@ -1,6 +1,5 @@
 """Vendor adapters. Each one speaks a vendor's native format and returns the same plain result."""
 import os
-import secrets
 from dataclasses import dataclass
 from decimal import Decimal
 
@@ -62,8 +61,8 @@ class Stripely:
             return Result(UNKNOWN, reason=err.get("message", "api_error"))
         return Result(INVALID, reason=err.get("message", f"http {r.status_code}"))
 
-    async def refund(self, vendor_ref: str, amount: int) -> Result:
-        try:
+    async def refund(self, vendor_ref: str, amount: int, currency: str) -> Result:
+        try:  # currency is implied by the charge at Stripely; kept so both adapters share one signature
             async with httpx.AsyncClient(timeout=TIMEOUT) as c:
                 r = await c.post(f"{self.base}/refunds", headers=self.headers, json={"charge": vendor_ref, "amount": amount})
         except httpx.HTTPError as e:
@@ -140,7 +139,7 @@ class Adyenta:
         refusal = resp.find("pay:refusalCode", self.NS).text
         return Result(HARD_DECLINE if refusal == "43" else SOFT_DECLINE, reason=f"refusal {refusal}")
 
-    async def refund(self, vendor_ref: str, amount: int, currency: str = "USD") -> Result:
+    async def refund(self, vendor_ref: str, amount: int, currency: str) -> Result:
         try:
             code, body = await self.call("RefundTransaction", (
                 f"<pay:RefundTransactionRequest><pay:merchantAccount>{self.account}</pay:merchantAccount>"
@@ -155,6 +154,3 @@ class Adyenta:
 
 VENDORS = {v.name: v for v in (Stripely(), Adyenta())}
 
-
-def new_key() -> str:
-    return secrets.token_hex(16)

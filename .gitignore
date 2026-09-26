@@ -3,3 +3,6 @@
 __pycache__/
 *.pyc
 .pytest_cache/
+.claude/
+.claude-flow/
+__MACOSX/

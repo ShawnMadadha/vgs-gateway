@@ -1,5 +1,6 @@
 """Stripely sandbox mock. JSON over HTTP, per docs/STRIPELY.md. Run on port 4001."""
 import asyncio
+import json
 import secrets
 import time
 
@@ -98,7 +99,6 @@ async def create_charge(
         CHARGES[charge["id"]] = charge
         resp = JSONResponse(charge, status_code=201)
     if idempotency_key:
-        import json
         IDEMPOTENCY[idempotency_key] = (resp.status_code, json.loads(resp.body))
     return resp
 

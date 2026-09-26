@@ -77,9 +77,7 @@ async def rollback(payment: dict, charged: list[dict]) -> None:
 
 
 async def refund_item(payment: dict, item: dict, amount: int):
-    v = VENDORS[item["vendor"]]
-    res = await v.refund(item["vendor_ref"], amount, item["currency"]) if v.name == "adyenta" \
-        else await v.refund(item["vendor_ref"], amount)
+    res = await VENDORS[item["vendor"]].refund(item["vendor_ref"], amount, item["currency"])
     ledger.record("refund", payment["id"], item["id"], item["vendor"], res.outcome, amount, item["currency"],
                   res.vendor_ref, res.reason, item["region"])
     if res.outcome == SUCCEEDED:
