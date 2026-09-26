@@ -52,8 +52,11 @@
 let last = null;  // {key, body} so Replay resends the exact same request with the same key
 const money = (minor, cur) => `${(minor / 100).toFixed(2)} ${cur}`;
 
+// Sandbox-only: tell the Adyenta mock whether it is "down". Different port, so no-cors and we ignore the response.
+const syncOutage = () => fetch("http://localhost:4002/__sandbox/outage?on=" + document.getElementById("outage").checked, { method: "POST", mode: "no-cors" });
+
 async function pay(replay = false) {
-  await fetch("http://localhost:4002/__sandbox/outage?on=" + document.getElementById("outage").checked, { method: "POST", mode: "no-cors" });  // different port, response not needed
+  await syncOutage();
   if (!replay || !last) {
     last = {
       key: crypto.randomUUID(),
@@ -93,6 +96,7 @@ let lastPaymentId = null;
 
 async function refundBundle() {
   if (!lastPaymentId) return;
+  await syncOutage();
   const r = await fetch("/v1/refunds", { method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify({ payment_id: lastPaymentId }) });
   const d = await r.json();
   if (!d.refunds) { document.getElementById("refund").innerHTML = `<span class="bad">HTTP ${r.status}: ${d.detail}</span>`; return; }
