@@ -34,13 +34,16 @@
   <label>Booking <input id="ref" value="BKG-448291" size="10"></label>
   <button onclick="pay()">Pay package</button>
   <button class="secondary" onclick="pay(true)">Replay last request</button>
+  <button class="secondary" onclick="refundBundle()">Refund last bundle</button>
 </fieldset>
 
 <div id="package">Package: flight $450.00 US, hotel €320.00 EU, tour $99.00 APAC</div>
 <h2>Result</h2>
 <div id="result">Nothing yet.</div>
 
-<h2>Ledger <a href="/v1/ledger.csv" style="font-weight:normal">(CSV feed for finance)</a></h2>
+<h2>Refund</h2>
+<div id="refund">None yet.</div>
+<h2>Ledger <a href="/v1/ledger.csv" style="font-weight:normal">(CSV feed for finance)</a> · <a href="/v1/refunds/failed" style="font-weight:normal">(failed refunds feed for ops)</a></h2>
 <table id="ledger"><thead><tr><th>Vendor</th><th>Currency</th><th>Charges</th><th>Gross</th><th>Refunds</th><th>Fees</th><th>Net</th></tr></thead><tbody></tbody></table>
 <h2>Vendor success by region</h2>
 <table id="stats"><thead><tr><th>Vendor</th><th>Region</th><th>Attempts</th><th>Succeeded</th><th>Rate</th></tr></thead><tbody></tbody></table>
@@ -68,6 +71,7 @@ async function pay(replay = false) {
   document.getElementById("result").textContent = "Processing…";
   const r = await fetch("/v1/payments", { method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": last.key }, body: JSON.stringify(last.body) });
   const p = await r.json();
+  lastPaymentId = p.id;
   render(p, r.status);
   loadLedger();
 }
@@ -83,6 +87,18 @@ function render(p, status) {
   html += "</table>";
   if (p.needs_reconciliation) html += `<p class="warn">Needs reconciliation: ${JSON.stringify(p.needs_reconciliation)}</p>`;
   document.getElementById("result").innerHTML = html;
+}
+
+let lastPaymentId = null;
+
+async function refundBundle() {
+  if (!lastPaymentId) return;
+  const r = await fetch("/v1/refunds", { method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify({ payment_id: lastPaymentId }) });
+  const d = await r.json();
+  if (!d.refunds) { document.getElementById("refund").innerHTML = `<span class="bad">HTTP ${r.status}: ${d.detail}</span>`; return; }
+  document.getElementById("refund").innerHTML = `<b class="${d.failed.length ? "bad" : "ok"}">${d.payment_id} (HTTP ${r.status})</b><table><tr><th>Item</th><th>Amount</th><th>Vendor</th><th>Outcome</th><th>Vendor ref</th></tr>` +
+    d.refunds.map(x => `<tr><td>${x.line_item_id}</td><td>${money(x.amount, x.currency)}</td><td>${x.vendor}</td><td class="${x.outcome === "succeeded" ? "ok" : "bad"}">${x.outcome}${x.reason ? " (" + x.reason + ")" : ""}</td><td>${x.vendor_ref ?? ""}</td></tr>`).join("") + "</table>";
+  loadLedger();
 }
 
 async function loadLedger() {
