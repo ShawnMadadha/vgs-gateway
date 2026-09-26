@@ -79,14 +79,32 @@ def test_vendor_outage_rolls_back_successful_charges():
     assert "needs_reconciliation" not in r.json()  # tokenize failed, so no money moved at Adyenta
 
 
+def refund(body: dict) -> httpx.Response:
+    return httpx.post(f"{GW}/v1/refunds", headers={"Idempotency-Key": uuid.uuid4().hex}, json=body, timeout=30)
+
+
 def test_partial_refund_then_over_refund_rejected():
     p = pay(package(GOOD)).json()
-    r = httpx.post(f"{GW}/v1/refunds", headers={"Idempotency-Key": uuid.uuid4().hex},
-                   json={"payment_id": p["id"], "line_item_id": "hotel", "amount": 10000})
-    assert r.status_code == 200 and r.json()["remaining"] == 22000
-    r = httpx.post(f"{GW}/v1/refunds", headers={"Idempotency-Key": uuid.uuid4().hex},
-                   json={"payment_id": p["id"], "line_item_id": "hotel", "amount": 30000})
+    r = refund({"payment_id": p["id"], "line_item_id": "hotel", "amount": 10000})
+    assert r.status_code == 200 and r.json()["refunds"][0]["remaining"] == 22000
+    r = refund({"payment_id": p["id"], "line_item_id": "hotel", "amount": 30000})
     assert r.status_code == 409
+
+
+def test_refund_whole_bundle():
+    p = pay(package(GOOD)).json()
+    r = refund({"payment_id": p["id"]})
+    assert r.status_code == 200 and len(r.json()["refunds"]) == 3 and r.json()["failed"] == []
+    assert refund({"payment_id": p["id"]}).status_code == 409  # nothing left to refund
+
+
+def test_failed_refund_shows_up_in_ops_feed():
+    p = pay(package(GOOD)).json()
+    httpx.post(f"{ADYENTA}/__sandbox/outage", params={"on": "true"})
+    r = refund({"payment_id": p["id"], "line_item_id": "hotel"})
+    assert r.status_code == 502 and r.json()["failed"] == ["hotel"]
+    feed = httpx.get(f"{GW}/v1/refunds/failed").json()
+    assert any(row["payment_id"] == p["id"] and row["line_item"] == "hotel" for row in feed)
 
 
 def test_ledger_net_is_gross_minus_refunds_minus_fees():

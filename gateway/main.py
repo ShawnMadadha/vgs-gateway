@@ -39,7 +39,7 @@ class PaymentIn(BaseModel):
 
 class RefundIn(BaseModel):
     payment_id: str
-    line_item_id: str
+    line_item_id: str | None = Field(default=None, description="omit to refund every charged item in the bundle")
     amount: int | None = Field(default=None, gt=0, description="minor units; omit for full refund")
 
 
@@ -85,20 +85,35 @@ async def create_refund(body: RefundIn, idempotency_key: str = Header()):
     payment = PAYMENTS.get(body.payment_id)
     if payment is None:
         raise HTTPException(404, "No such payment.")
-    item = next((i for i in payment["line_items"] if i["id"] == body.line_item_id), None)
-    if item is None or item.get("status") != "charged":
-        raise HTTPException(409, "Line item was not charged, or is already rolled back.")
-    remaining = item["amount"] - item.get("refunded", 0)
-    amount = body.amount or remaining
-    if amount > remaining:
-        raise HTTPException(409, f"Refund exceeds remaining {remaining} {item['currency']}.")
-    res = await router.refund_item(payment, item, amount)
-    if res.outcome != SUCCEEDED:
-        raise HTTPException(502, f"Vendor refund failed: {res.reason}")
-    out = {"payment_id": payment["id"], "line_item_id": item["id"], "amount": amount, "currency": item["currency"],
-           "vendor": item["vendor"], "vendor_ref": res.vendor_ref, "remaining": remaining - amount}
+    if body.line_item_id is None:  # whole bundle, e.g. the trip was cancelled
+        if body.amount is not None:
+            raise HTTPException(422, "amount only applies to a single line item.")
+        items = [i for i in payment["line_items"] if i.get("status") == "charged" and i["amount"] > i.get("refunded", 0)]
+    else:
+        items = [i for i in payment["line_items"] if i["id"] == body.line_item_id and i.get("status") == "charged"]
+    if not items:
+        raise HTTPException(409, "Nothing refundable: item not charged, already rolled back, or fully refunded.")
+
+    results = []
+    for item in items:
+        remaining = item["amount"] - item.get("refunded", 0)
+        amount = body.amount or remaining
+        if amount > remaining:
+            raise HTTPException(409, f"Refund exceeds remaining {remaining} {item['currency']}.")
+        res = await router.refund_item(payment, item, amount)
+        results.append({"line_item_id": item["id"], "amount": amount, "currency": item["currency"], "vendor": item["vendor"],
+                        "outcome": res.outcome, "vendor_ref": res.vendor_ref, "reason": res.reason,
+                        "remaining": item["amount"] - item.get("refunded", 0)})
+    out = {"payment_id": payment["id"], "refunds": results,
+           "failed": [r["line_item_id"] for r in results if r["outcome"] != SUCCEEDED]}  # ops team needs to see these
     IDEMPOTENCY[idempotency_key] = ("", out)
-    return out
+    return JSONResponse(out, status_code=200 if not out["failed"] else 502)
+
+
+@app.get("/v1/refunds/failed")
+async def failed_refunds():
+    """The daily feed for the ops team: every refund the vendor did not confirm, with what they need to chase it."""
+    return [r for r in ledger.ROWS if r["kind"] == "refund" and r["outcome"] != SUCCEEDED]
 
 
 @app.get("/v1/ledger")

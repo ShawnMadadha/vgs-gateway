@@ -1,0 +1,361 @@
+openapi: 3.0.3
+info:
+  title: Stripely API
+  version: "2026-08-01"
+  description: |
+    Stripely is a modern card processor with a JSON-over-HTTPS API.
+
+    **This is a sandbox contract for the build challenge.** You implement the mock
+    server yourself; it must honor everything in this spec, including the simulated
+    behavior below. The prose version of this spec is `STRIPELY.md`.
+
+    ## Conventions
+    - Amounts are **integers in minor units** (`1050` = $10.50).
+    - Currencies are lowercase ISO 4217. Supported: `usd`, `gbp`.
+    - Pricing: 2.9% + $0.30 per successful charge.
+
+    ## Tokens
+    Cards must be tokenized with Stripely first (`POST /tokens`). Charges accept
+    only Stripely tokens (`tok_st_...`) — tokens from any other provider are
+    rejected with `400`. Sandbox tokens are reusable.
+
+    ## Idempotency
+    Supported natively via the `Idempotency-Key` request header on `POST /charges`.
+    Replaying a key within 24h returns the **original response** (same charge id,
+    same status) and never creates a second charge.
+
+    ## Sandbox test cards
+    Behavior is keyed off the **card number** used to create the token, and
+    triggers when the token is **charged** (tokenization itself succeeds):
+
+    | Test card number | Behavior at charge time |
+    |---|---|
+    | `4242 4242 4242 4242` | `201`, charge succeeds |
+    | `4000 0000 0000 9995` | `402`, `decline_code: insufficient_funds` |
+    | `4000 0000 0000 9979` | `402`, `decline_code: stolen_card` |
+    | `4000 0000 0000 0119` | `500 api_error` |
+    | `4000 0000 0000 5900` | No response for 30 seconds, then `500` |
+
+    Any other well-formed card number behaves like `4242 4242 4242 4242`.
+servers:
+  - url: https://api.stripely.test/v1
+    description: Sandbox (fictional — run your mock locally instead)
+  - url: http://localhost:4001/v1
+    description: Suggested local mock
+security:
+  - bearerAuth: []
+paths:
+  /tokens:
+    post:
+      operationId: createToken
+      summary: Create a card token
+      description: >-
+        Tokenizes a card. Succeeds even for test cards that later decline —
+        decline/failure behavior triggers at charge time, not tokenization time.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TokenRequest"
+      responses:
+        "201":
+          description: Token created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Token"
+        "400":
+          description: >-
+            Malformed card (non-numeric number, wrong length, missing fields,
+            expired date). `error.type` is `invalid_request_error`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Missing or invalid API key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /charges:
+    post:
+      operationId: createCharge
+      summary: Create a charge
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          description: >-
+            Client-generated key. Replaying the same key within 24h returns the
+            original response and never creates a second charge.
+          schema:
+            type: string
+            example: 8f3c1a9e-4b2d-4f6a-9c1e-7d5b2a8e3f10
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChargeRequest"
+      responses:
+        "201":
+          description: Charge succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Charge"
+        "400":
+          description: >-
+            Invalid request (unsupported currency, non-integer amount, missing
+            fields, unknown or non-Stripely source token). `error.type` is
+            `invalid_request_error`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Missing or invalid API key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "402":
+          description: >-
+            Card declined. `error.type` is `card_error`, `error.code` is
+            `card_declined`, and `error.decline_code` distinguishes soft declines
+            (`insufficient_funds` — the issuer might approve later or via another
+            route) from hard declines (`stolen_card` — never retry this card
+            anywhere).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error:
+                  type: card_error
+                  code: card_declined
+                  decline_code: insufficient_funds
+                  message: Your card has insufficient funds.
+        "500":
+          description: >-
+            Processor failure (`error.type` is `api_error`). It is **unknown**
+            whether a charge was created. (In sandbox: it was not.)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /charges/{id}:
+    get:
+      operationId: getCharge
+      summary: Retrieve a charge
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            example: ch_3PxK2mQ8rT1vY7aB
+      responses:
+        "200":
+          description: The charge.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Charge"
+        "404":
+          description: No such charge.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /refunds:
+    post:
+      operationId: createRefund
+      summary: Create a refund
+      description: Refunds reference the charge — no card token needed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefundRequest"
+      responses:
+        "201":
+          description: Refund succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Refund"
+        "400":
+          description: >-
+            Invalid request, including refunding more than the remaining
+            un-refunded amount (`invalid_request_error`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Missing or invalid API key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: "Sandbox key: sk_test_atlas_51xK..."
+  schemas:
+    TokenRequest:
+      type: object
+      required: [card]
+      properties:
+        card:
+          type: object
+          required: [number, exp_month, exp_year, cvc]
+          properties:
+            number:
+              type: string
+              example: "4242424242424242"
+            exp_month:
+              type: integer
+              minimum: 1
+              maximum: 12
+              example: 8
+            exp_year:
+              type: integer
+              example: 2029
+            cvc:
+              type: string
+              example: "123"
+    Token:
+      type: object
+      required: [id, object, brand, last4, created]
+      properties:
+        id:
+          type: string
+          description: Stripely card token. Only these are accepted as a charge source.
+          example: tok_st_8Ge2xQb4kR9mVw1c
+        object:
+          type: string
+          enum: [token]
+        brand:
+          type: string
+          example: visa
+        last4:
+          type: string
+          example: "4242"
+        created:
+          type: integer
+          description: Unix epoch seconds.
+          example: 1786372290
+    ChargeRequest:
+      type: object
+      required: [amount, currency, source, reference]
+      properties:
+        amount:
+          type: integer
+          minimum: 1
+          description: Amount in minor units (1050 = $10.50).
+          example: 1050
+        currency:
+          type: string
+          enum: [usd, gbp]
+          example: usd
+        source:
+          type: string
+          description: A Stripely card token from POST /tokens.
+          example: tok_st_8Ge2xQb4kR9mVw1c
+        reference:
+          type: string
+          description: Caller-supplied reference (e.g. booking reference).
+          example: BKG-448291
+    Charge:
+      type: object
+      required: [id, object, status, amount, currency, source, reference, created]
+      properties:
+        id:
+          type: string
+          example: ch_3PxK2mQ8rT1vY7aB
+        object:
+          type: string
+          enum: [charge]
+        status:
+          type: string
+          enum: [succeeded]
+        amount:
+          type: integer
+          example: 1050
+        currency:
+          type: string
+          enum: [usd, gbp]
+        source:
+          type: string
+          example: tok_st_8Ge2xQb4kR9mVw1c
+        reference:
+          type: string
+          example: BKG-448291
+        created:
+          type: integer
+          description: Unix epoch seconds.
+          example: 1786372331
+    RefundRequest:
+      type: object
+      required: [charge]
+      properties:
+        charge:
+          type: string
+          description: Id of the charge to refund.
+          example: ch_3PxK2mQ8rT1vY7aB
+        amount:
+          type: integer
+          minimum: 1
+          description: Minor units. Omitted = full refund.
+          example: 1050
+    Refund:
+      type: object
+      required: [id, object, charge, status, amount, created]
+      properties:
+        id:
+          type: string
+          example: re_1QaB3cD4eF5gH6iJ
+        object:
+          type: string
+          enum: [refund]
+        charge:
+          type: string
+          example: ch_3PxK2mQ8rT1vY7aB
+        status:
+          type: string
+          enum: [succeeded]
+        amount:
+          type: integer
+          example: 1050
+        created:
+          type: integer
+          description: Unix epoch seconds.
+          example: 1786375944
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [type, message]
+          properties:
+            type:
+              type: string
+              enum: [card_error, invalid_request_error, api_error, authentication_error]
+            code:
+              type: string
+              description: Present on card errors.
+              enum: [card_declined]
+            decline_code:
+              type: string
+              description: Present when code is card_declined.
+              enum: [insufficient_funds, stolen_card]
+            message:
+              type: string

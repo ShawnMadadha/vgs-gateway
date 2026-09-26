@@ -22,6 +22,10 @@ failure, backs everything out if the package cannot complete, and keeps a ledger
   APAC, rotate between vendors and track which one succeeds more.
 - Atlas collects raw card details and sends them to us. They accept PCI scope.
 - Two vendors now, more later.
+- Refunds: refund a whole bundle (trip cancelled) or one item (rainy excursion).
+  Refund failures are rare but ops must see them in a daily feed, since a human
+  then calls the vendor. Auth then capture is the ideal, with void on an
+  auth failure and refund after capture.
 
 ## The one flow that must work
 
@@ -31,7 +35,8 @@ failure, backs everything out if the package cannot complete, and keeps a ledger
    retried once at the other vendor.
 4. If any line item still fails, every succeeded charge is refunded and the
    package returns `failed`. Otherwise it returns `succeeded`.
-5. `POST /v1/refunds` refunds a line item, full or partial.
+5. `POST /v1/refunds` refunds one line item, full or partial, or the whole
+   bundle. Failed refunds are listed at `GET /v1/refunds/failed` for ops.
 6. `GET /v1/ledger` shows gross, refunds, fees, and net per vendor and currency.
 
 ## Decisions
@@ -39,7 +44,7 @@ failure, backs everything out if the package cannot complete, and keeps a ledger
 Auth then capture. The vendor specs only expose charge-and-capture in one call,
 so there is no separate authorize step. Assumption: emulate all-or-nothing with
 charge plus compensating refund. The alternative, holding funds, does not exist
-in these APIs.
+in these APIs. Neither vendor exposes a void, so every backout is a refund.
 
 Retry rules. Soft declines and vendor errors retry once at the other vendor.
 Stolen card is a hard decline and never retries anywhere. The alternative,
